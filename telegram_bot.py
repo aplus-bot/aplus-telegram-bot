@@ -1,33 +1,65 @@
 import logging
+import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Enable logging
+# Enable logging to a file
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    filename='bot.log'
 )
 
-# Define the /start command handler
+# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
+    response = (
+        f"Hello {user.first_name}!\n\n"
+        f"UserID: {user.id}\n"
+        f"UserName: {user.username}\n"
+        f"GroupID: {chat.id if chat.type in ['group', 'supergroup'] else 'N/A'}"
+    )
+    await update.message.reply_text(response)
+    logging.info(f"/start used by {user.username} ({user.id}) in chat {chat.id}")
 
-    response = f"Hello {user.username or 'User'}!\n\n"
-    response += f"UserID: {user.id}\n"
-    response += f"UserName: {user.username or 'N/A'}\n"
-    if chat.type in ['group', 'supergroup']:
-        response += f"GroupID: {chat.id}"
+# /help command handler
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    response = (
+        "Available commands:\n"
+        "/start - Show user info\n"
+        "/help - List available commands\n"
+        "/about - About this bot"
+    )
+    await update.message.reply_text(response)
+    user = update.effective_user
+    chat = update.effective_chat
+    logging.info(f"/help used by {user.username} ({user.id}) in chat {chat.id}")
 
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
+# /about command handler
+async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    response = (
+        "About SystemBot:\n"
+        "1) Text...\n"
+        "2) Text...\n"
+        "3) Text..."
+    )
+    await update.message.reply_text(response)
+    user = update.effective_user
+    chat = update.effective_chat
+    logging.info(f"/about used by {user.username} ({user.id}) in chat {chat.id}")
 
 # Main function to run the bot
 def main():
-    import os
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("about", about_command))
+
     app.run_polling()
 
-if __name__ == '__main__':
+# Run the bot
+if __name__ == "__main__":
     main()
