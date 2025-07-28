@@ -40,9 +40,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = (
         "About SystemBot:\n"
-        "1) Text...\n"
-        "2) Text...\n"
-        "3) Text..."
+        "1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
+        "2) [Contruction or Using] (https://t.me/AplusSD_V5/194)\n"
+        "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
     await update.message.reply_text(response)
     user = update.effective_user
