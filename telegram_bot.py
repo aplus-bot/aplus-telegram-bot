@@ -48,10 +48,11 @@ def record_invoice(invoice_no: str, usd: float, riel: int, bot_only=False):
 
 # ===== Send invoice (bot) =====
 async def send_invoice(update: Update, msg_text: str):
-    # Send message
+    """
+    Sends the invoice message and immediately records bot invoices.
+    """
     await update.message.reply_text(msg_text)
 
-    # Parse invoice(s)
     invoice_matches = re.findall(invoice_pattern, msg_text)
     total_match = re.search(total_pattern, msg_text)
 
@@ -59,7 +60,7 @@ async def send_invoice(update: Update, msg_text: str):
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
         for invoice_no in invoice_matches:
-            record_invoice(invoice_no, usd_amount, riel_amount, bot_only=True)  # record bot invoice
+            record_invoice(invoice_no, usd_amount, riel_amount, bot_only=True)
 
 # ===== Record user messages automatically =====
 async def record_payment(update: Update, context):
