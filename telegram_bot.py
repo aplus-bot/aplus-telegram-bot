@@ -17,7 +17,7 @@ logging.basicConfig(
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
-# ===== Data file =====
+# ===== Data storage =====
 DATA_FILE = "daily_sum.json"
 
 def load_data():
@@ -44,14 +44,22 @@ def record_invoice(invoice_no: str, usd: float, riel: int):
     save_data(data)
     logging.info(f"Recorded invoice #{invoice_no}: ${usd} | R. {riel}")
 
-# ===== Send invoice (bot) =====
+# ===== Bot sends invoice (auto-recorded) =====
 async def send_invoice(update: Update, msg_text: str):
-    # Send the full message
+    # Send message
     await update.message.reply_text(msg_text)
-    # Record the invoice(s) automatically
-    await record_payment(update, None)
+    
+    # Parse and record invoice(s) from the message immediately
+    invoice_matches = re.findall(invoice_pattern, msg_text)
+    total_match = total_pattern.search(msg_text)
 
-# ===== Record user or bot messages =====
+    if invoice_matches and total_match:
+        usd_amount = float(total_match.group(1).replace(",", ""))
+        riel_amount = int(total_match.group(2).replace(",", ""))
+        for invoice_no in invoice_matches:
+            record_invoice(invoice_no, usd_amount, riel_amount)
+
+# ===== Record user messages automatically =====
 async def record_payment(update: Update, context):
     if not update.message or not update.message.text:
         return
@@ -117,6 +125,7 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No invoices found for {period}.")
         return
 
+    # Build reply
     lines = []
     for inv in invoices:
         lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
@@ -125,8 +134,7 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines.append("_______________________")
     lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
 
-    reply = "\n".join(lines)
-    await update.message.reply_text(reply)
+    await update.message.reply_text("\n".join(lines))
 
 # ===== Main =====
 def main():
@@ -139,7 +147,7 @@ def main():
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("dSum", dsum_command))
 
-    # Record user messages
+    # Record user messages automatically
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
 
     app.run_polling()
