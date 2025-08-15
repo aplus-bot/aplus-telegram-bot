@@ -45,10 +45,11 @@ def record_invoice(invoice_no: str, usd: float, riel: int):
     save_data(data)
     logging.info(f"Recorded invoice #{invoice_no} for {today_str}: ${usd} | R. {riel}")
 
-# ===== Send invoice (bot-sent) =====
-async def send_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE, invoice_no: str, usd: float, riel: int):
-    msg_text = f"🧾 វិកឃយបត្រ  {invoice_no}\n💵 ${usd:,.2f} | R. {riel:,}"
+# ===== Send invoice (bot-sent) and record immediately =====
+async def send_and_record_invoice(update: Update, invoice_no: str, usd: float, riel: int):
+    msg_text = f"🧾 វិក្កយបត្រ  {invoice_no}\n💵 ${usd:,.2f} | R. {riel:,}"
     await update.message.reply_text(msg_text)
+    # Record it immediately
     record_invoice(invoice_no, usd, riel)
 
 # ===== Record user messages =====
