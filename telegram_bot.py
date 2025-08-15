@@ -14,6 +14,7 @@ logging.basicConfig(
 )
 
 # ===== Regex patterns =====
+invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 usd_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)")
 riel_pattern = re.compile(r"\|\s*R\.\s*([\d,]+)")
 
@@ -36,18 +37,18 @@ async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = update.message.text
+    invoice_match = invoice_pattern.search(text)
     usd_match = usd_pattern.search(text)
     riel_match = riel_pattern.search(text)
 
-    if usd_match or riel_match:
+    if invoice_match and (usd_match or riel_match):
         today_str = datetime.now().strftime("%Y-%m-%d")
         data = load_data()
 
         if today_str not in data:
             data[today_str] = []
 
-        # Assign an invoice number (incremental)
-        invoice_no = len(data[today_str]) + 1
+        invoice_no = invoice_match.group(1)
         usd_amount = float(usd_match.group(1).replace(",", "")) if usd_match else 0.0
         riel_amount = int(riel_match.group(1).replace(",", "")) if riel_match else 0
 
@@ -80,7 +81,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
-# ===== /dSum with invoice details =====
+# ===== /dSum with two-line invoice display + separator + grand total =====
 async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     today = datetime.now().date()
@@ -88,13 +89,10 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if period == "today":
         keys = [today.strftime("%Y-%m-%d")]
-        period_name = "Today"
     elif period == "yesterday":
         keys = [(today - timedelta(days=1)).strftime("%Y-%m-%d")]
-        period_name = "Yesterday"
     elif period == "week":
         keys = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-        period_name = "Last 7 Days"
     else:
         await update.message.reply_text("Invalid argument. Use: today, yesterday, week")
         return
@@ -111,16 +109,20 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 riel_total += entry.get("riel", 0)
 
     if not invoices:
-        await update.message.reply_text(f"No invoices found for {period_name}.")
+        await update.message.reply_text(f"No invoices found for {period}.")
         return
 
-    # Build reply
+    # Build reply: each invoice two lines
     lines = []
     for inv in invoices:
-        lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']:06d}")
+        lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
         lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
+    
+    # Separator line
     lines.append("_______________________")
-    lines.append(f"Grand Total: 💵 ${usd_total:,.2f} | R. {riel_total:,}")
+
+    # Grand total after separator
+    lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
 
     reply = "\n".join(lines)
     await update.message.reply_text(reply)
