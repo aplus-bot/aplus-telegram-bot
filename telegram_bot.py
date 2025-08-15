@@ -30,7 +30,7 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ===== Record incoming messages =====
+# ===== Record each invoice =====
 async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -44,15 +44,21 @@ async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = load_data()
 
         if today_str not in data:
-            data[today_str] = {"usd": 0.0, "riel": 0}
+            data[today_str] = []
 
-        if usd_match:
-            data[today_str]["usd"] += float(usd_match.group(1).replace(",", ""))
-        if riel_match:
-            data[today_str]["riel"] += int(riel_match.group(1).replace(",", ""))
+        # Assign an invoice number (incremental)
+        invoice_no = len(data[today_str]) + 1
+        usd_amount = float(usd_match.group(1).replace(",", "")) if usd_match else 0.0
+        riel_amount = int(riel_match.group(1).replace(",", "")) if riel_match else 0
+
+        data[today_str].append({
+            "invoice_no": invoice_no,
+            "usd": usd_amount,
+            "riel": riel_amount
+        })
 
         save_data(data)
-        logging.info(f"Recorded payment for {today_str}: {data[today_str]}")
+        logging.info(f"Recorded invoice #{invoice_no} for {today_str}: ${usd_amount} | R. {riel_amount}")
 
 # ===== Commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -74,7 +80,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
-# ===== Simplified /dSum =====
+# ===== /dSum with invoice details =====
 async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     today = datetime.now().date()
@@ -82,24 +88,41 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if period == "today":
         keys = [today.strftime("%Y-%m-%d")]
+        period_name = "Today"
     elif period == "yesterday":
         keys = [(today - timedelta(days=1)).strftime("%Y-%m-%d")]
+        period_name = "Yesterday"
     elif period == "week":
         keys = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        period_name = "Last 7 Days"
     else:
         await update.message.reply_text("Invalid argument. Use: today, yesterday, week")
         return
 
+    invoices = []
     usd_total = 0.0
     riel_total = 0
 
     for key in keys:
         if key in data:
-            usd_total += data[key].get("usd", 0.0)
-            riel_total += data[key].get("riel", 0)
+            for entry in data[key]:
+                invoices.append(entry)
+                usd_total += entry.get("usd", 0.0)
+                riel_total += entry.get("riel", 0)
 
-    # Reply in simple two-line format
-    reply = f"🧾 វិក្កយបត្រ  {usd_total:.2f}   \n💵 ${usd_total:,.2f} | R. {riel_total:,}"
+    if not invoices:
+        await update.message.reply_text(f"No invoices found for {period_name}.")
+        return
+
+    # Build reply
+    lines = []
+    for inv in invoices:
+        lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']:06d}")
+        lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
+    lines.append("_______________________")
+    lines.append(f"Grand Total: 💵 ${usd_total:,.2f} | R. {riel_total:,}")
+
+    reply = "\n".join(lines)
     await update.message.reply_text(reply)
 
 # ===== Main =====
