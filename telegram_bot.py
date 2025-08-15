@@ -3,7 +3,7 @@ import os
 import re
 import json
 from datetime import datetime, timedelta
-from telegram import Update, Message
+from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 # ===== Logging =====
@@ -31,9 +31,28 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ===== Record each invoice =====
+# ===== Record invoice =====
+def record_invoice(invoice_no: str, usd: float, riel: int):
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    data = load_data()
+    if today_str not in data:
+        data[today_str] = []
+    data[today_str].append({
+        "invoice_no": invoice_no,
+        "usd": usd,
+        "riel": riel
+    })
+    save_data(data)
+    logging.info(f"Recorded invoice #{invoice_no} for {today_str}: ${usd} | R. {riel}")
+
+# ===== Send invoice (bot-sent) =====
+async def send_invoice(update: Update, context: ContextTypes.DEFAULT_TYPE, invoice_no: str, usd: float, riel: int):
+    msg_text = f"🧾 វិកឃយបត្រ  {invoice_no}\n💵 ${usd:,.2f} | R. {riel:,}"
+    await update.message.reply_text(msg_text)
+    record_invoice(invoice_no, usd, riel)
+
+# ===== Record user messages =====
 async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Include all messages, even from the bot
     if not update.message or not update.message.text:
         return
 
@@ -43,24 +62,10 @@ async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     riel_match = riel_pattern.search(text)
 
     if invoice_match and (usd_match or riel_match):
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        data = load_data()
-
-        if today_str not in data:
-            data[today_str] = []
-
         invoice_no = invoice_match.group(1)
         usd_amount = float(usd_match.group(1).replace(",", "")) if usd_match else 0.0
         riel_amount = int(riel_match.group(1).replace(",", "")) if riel_match else 0
-
-        data[today_str].append({
-            "invoice_no": invoice_no,
-            "usd": usd_amount,
-            "riel": riel_amount
-        })
-
-        save_data(data)
-        logging.info(f"Recorded invoice #{invoice_no} for {today_str}: ${usd_amount} | R. {riel_amount}")
+        record_invoice(invoice_no, usd_amount, riel_amount)
 
 # ===== Commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -82,7 +87,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
-# ===== /dSum with two-line invoices + separator + grand total =====
+# ===== /dSum =====
 async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     today = datetime.now().date()
@@ -113,16 +118,13 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No invoices found for {period}.")
         return
 
-    # Build reply: each invoice two lines
+    # Build reply
     lines = []
     for inv in invoices:
         lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
         lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
 
-    # Separator line
     lines.append("_______________________")
-
-    # Grand total after separator
     lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
 
     reply = "\n".join(lines)
@@ -133,14 +135,14 @@ def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Command handlers
+    # Commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("dSum", dsum_command))
 
-    # Message handler to record all payments (including bot messages)
-    app.add_handler(MessageHandler(filters.TEXT, record_payment))
+    # Record user messages
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
 
     app.run_polling()
 
