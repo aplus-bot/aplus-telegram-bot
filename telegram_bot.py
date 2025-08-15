@@ -3,7 +3,7 @@ import os
 import re
 import json
 from datetime import datetime, timedelta
-from telegram import Update
+from telegram import Update, Message
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 # ===== Logging =====
@@ -33,6 +33,7 @@ def save_data(data):
 
 # ===== Record each invoice =====
 async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Include all messages, even from the bot
     if not update.message or not update.message.text:
         return
 
@@ -81,7 +82,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
-# ===== /dSum with two-line invoice display + separator + grand total =====
+# ===== /dSum with two-line invoices + separator + grand total =====
 async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     today = datetime.now().date()
@@ -117,7 +118,7 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for inv in invoices:
         lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
         lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
-    
+
     # Separator line
     lines.append("_______________________")
 
@@ -138,8 +139,8 @@ def main():
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("dSum", dsum_command))
 
-    # Message handler to record payments
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
+    # Message handler to record all payments (including bot messages)
+    app.add_handler(MessageHandler(filters.TEXT, record_payment))
 
     app.run_polling()
 
