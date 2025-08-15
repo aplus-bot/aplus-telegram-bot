@@ -44,15 +44,20 @@ def record_invoice(invoice_no: str, usd: float, riel: int):
     save_data(data)
     logging.info(f"Recorded invoice #{invoice_no}: ${usd} | R. {riel}")
 
-# ===== Bot sends invoice (auto-recorded) =====
+# ===== Send invoice (bot) and record immediately =====
 async def send_invoice(update: Update, msg_text: str):
-    # Send message
+    """
+    Sends the invoice message and records all invoice numbers and totals immediately.
+    """
+    # Send the full message
     await update.message.reply_text(msg_text)
-    
-    # Parse and record invoice(s) from the message immediately
-    invoice_matches = re.findall(invoice_pattern, msg_text)
-    total_match = total_pattern.search(msg_text)
 
+    # Parse invoice numbers
+    invoice_matches = re.findall(invoice_pattern, msg_text)
+    
+    # Parse total line
+    total_match = re.search(total_pattern, msg_text)
+    
     if invoice_matches and total_match:
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
@@ -64,10 +69,8 @@ async def record_payment(update: Update, context):
     if not update.message or not update.message.text:
         return
     text = update.message.text
-
     invoice_matches = re.findall(invoice_pattern, text)
-    total_match = total_pattern.search(text)
-
+    total_match = re.search(total_pattern, text)
     if invoice_matches and total_match:
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
