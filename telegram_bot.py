@@ -6,21 +6,20 @@ from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-# Logging
+# ===== Logging =====
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     filename='bot.log'
 )
 
-# Regex patterns
+# ===== Regex patterns =====
 usd_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)")
 riel_pattern = re.compile(r"\|\s*R\.\s*([\d,]+)")
-payment_pattern = re.compile(r"Payment\s*:\s*([^\n\r]+)", re.IGNORECASE)
 
+# ===== Data file =====
 DATA_FILE = "daily_sum.json"
 
-# Load and save data
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -31,7 +30,7 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# Record payment messages
+# ===== Record incoming messages =====
 async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -39,69 +38,23 @@ async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     usd_match = usd_pattern.search(text)
     riel_match = riel_pattern.search(text)
-    payment_match = payment_pattern.search(text)
 
     if usd_match or riel_match:
         today_str = datetime.now().strftime("%Y-%m-%d")
         data = load_data()
 
-        method = payment_match.group(1).strip() if payment_match else "Unknown"
-
         if today_str not in data:
-            data[today_str] = {}
-        if method not in data[today_str]:
-            data[today_str][method] = {"usd": 0.0, "riel": 0}
+            data[today_str] = {"usd": 0.0, "riel": 0}
 
         if usd_match:
-            data[today_str][method]["usd"] += float(usd_match.group(1).replace(",", ""))
+            data[today_str]["usd"] += float(usd_match.group(1).replace(",", ""))
         if riel_match:
-            data[today_str][method]["riel"] += int(riel_match.group(1).replace(",", ""))
+            data[today_str]["riel"] += int(riel_match.group(1).replace(",", ""))
 
         save_data(data)
-        logging.info(f"Recorded payment for {today_str}, method {method}: {data[today_str][method]}")
+        logging.info(f"Recorded payment for {today_str}: {data[today_str]}")
 
-# /dSum command
-async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
-    args = context.args
-    today = datetime.now().date()
-    period = args[0].lower() if args else "today"
-
-    result = {}
-    if period == "today":
-        keys = [today.strftime("%Y-%m-%d")]
-        period_name = "Today"
-    elif period == "yesterday":
-        keys = [(today - timedelta(days=1)).strftime("%Y-%m-%d")]
-        period_name = "Yesterday"
-    elif period == "week":
-        keys = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-        period_name = "Last 7 Days"
-    else:
-        await update.message.reply_text("Invalid argument. Use: today, yesterday, week")
-        return
-
-    # Sum by payment method
-    totals = {}
-    for key in keys:
-        if key in data:
-            for method, amounts in data[key].items():
-                if method not in totals:
-                    totals[method] = {"usd": 0.0, "riel": 0}
-                totals[method]["usd"] += amounts.get("usd", 0.0)
-                totals[method]["riel"] += amounts.get("riel", 0)
-
-    if not totals:
-        reply = f"📊 {period_name} — No transactions."
-    else:
-        lines = [f"📊 {period_name} Totals:"]
-        for method, amounts in totals.items():
-            lines.append(f"{method}: 💵 ${amounts['usd']:,.2f} | R. {amounts['riel']:,}")
-        reply = "\n".join(lines)
-
-    await update.message.reply_text(reply)
-
-# Standard commands
+# ===== Commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -121,15 +74,46 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
-# Main
+# ===== Simplified /dSum =====
+async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    data = load_data()
+    today = datetime.now().date()
+    period = context.args[0].lower() if context.args else "today"
+
+    if period == "today":
+        keys = [today.strftime("%Y-%m-%d")]
+    elif period == "yesterday":
+        keys = [(today - timedelta(days=1)).strftime("%Y-%m-%d")]
+    elif period == "week":
+        keys = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    else:
+        await update.message.reply_text("Invalid argument. Use: today, yesterday, week")
+        return
+
+    usd_total = 0.0
+    riel_total = 0
+
+    for key in keys:
+        if key in data:
+            usd_total += data[key].get("usd", 0.0)
+            riel_total += data[key].get("riel", 0)
+
+    # Reply in simple two-line format
+    reply = f"🧾 វិក្កយបត្រ  {usd_total:.2f}   \n💵 ${usd_total:,.2f} | R. {riel_total:,}"
+    await update.message.reply_text(reply)
+
+# ===== Main =====
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("dSum", dsum_command))
+
+    # Message handler to record payments
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
 
     app.run_polling()
