@@ -18,22 +18,24 @@ invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
 # ===== Data storage =====
-DATA_FILE = "daily_sum.json"
+DATA_FILE_ALL = "daily_sum.json"       # All invoices
+DATA_FILE_BOT = "daily_sum_bot.json"   # Bot-only invoices
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
+def load_data(filename):
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
+def save_data(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ===== Record invoice =====
-def record_invoice(invoice_no: str, usd: float, riel: int):
+def record_invoice(invoice_no: str, usd: float, riel: int, bot_only=False):
     today_str = datetime.now().strftime("%Y-%m-%d")
-    data = load_data()
+    filename = DATA_FILE_BOT if bot_only else DATA_FILE_ALL
+    data = load_data(filename)
     if today_str not in data:
         data[today_str] = []
     data[today_str].append({
@@ -41,28 +43,23 @@ def record_invoice(invoice_no: str, usd: float, riel: int):
         "usd": usd,
         "riel": riel
     })
-    save_data(data)
-    logging.info(f"Recorded invoice #{invoice_no}: ${usd} | R. {riel}")
+    save_data(filename, data)
+    logging.info(f"{'Bot' if bot_only else 'User'} invoice #{invoice_no}: ${usd} | R. {riel}")
 
-# ===== Send invoice (bot) and record immediately =====
+# ===== Send invoice (bot) =====
 async def send_invoice(update: Update, msg_text: str):
-    """
-    Sends the invoice message and records all invoice numbers and totals immediately.
-    """
-    # Send the full message
+    # Send message
     await update.message.reply_text(msg_text)
 
-    # Parse invoice numbers
+    # Parse invoice(s)
     invoice_matches = re.findall(invoice_pattern, msg_text)
-    
-    # Parse total line
     total_match = re.search(total_pattern, msg_text)
-    
+
     if invoice_matches and total_match:
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
         for invoice_no in invoice_matches:
-            record_invoice(invoice_no, usd_amount, riel_amount)
+            record_invoice(invoice_no, usd_amount, riel_amount, bot_only=True)  # record bot invoice
 
 # ===== Record user messages automatically =====
 async def record_payment(update: Update, context):
@@ -75,7 +72,7 @@ async def record_payment(update: Update, context):
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
         for invoice_no in invoice_matches:
-            record_invoice(invoice_no, usd_amount, riel_amount)
+            record_invoice(invoice_no, usd_amount, riel_amount, bot_only=False)
 
 # ===== Commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -87,7 +84,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Commands:\n/start\n/help\n/about\n/dSum [today|yesterday|week]"
+        "Commands:\n/start\n/help\n/about\n/dSum [today|yesterday|week]\n/dSumBot [today|yesterday|week]"
     )
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,9 +94,18 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
-# ===== /dSum =====
+# ===== /dSum (all invoices) =====
 async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_data()
+    await sum_invoices(update, context, bot_only=False)
+
+# ===== /dSumBot (bot-only invoices) =====
+async def dsum_bot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await sum_invoices(update, context, bot_only=True)
+
+# ===== Helper to sum invoices =====
+async def sum_invoices(update, context, bot_only=False):
+    filename = DATA_FILE_BOT if bot_only else DATA_FILE_ALL
+    data = load_data(filename)
     today = datetime.now().date()
     period = context.args[0].lower() if context.args else "today"
 
@@ -149,6 +155,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("dSum", dsum_command))
+    app.add_handler(CommandHandler("dSumBot", dsum_bot_command))
 
     # Record user messages automatically
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
