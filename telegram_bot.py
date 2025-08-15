@@ -15,8 +15,7 @@ logging.basicConfig(
 
 # ===== Regex patterns =====
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
-usd_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)")
-riel_pattern = re.compile(r"\|\s*R\.\s*([\d,]+)")
+total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
 # ===== Data file =====
 DATA_FILE = "daily_sum.json"
@@ -45,25 +44,27 @@ def record_invoice(invoice_no: str, usd: float, riel: int):
     save_data(data)
     logging.info(f"Recorded invoice #{invoice_no}: ${usd} | R. {riel}")
 
-# ===== Send invoice (bot) and record automatically =====
-async def send_invoice(update: Update, invoice_no: str, usd: float, riel: int):
-    msg_text = f"🧾 វិក្កយបត្រ  {invoice_no}\n💵 ${usd:,.2f} | R. {riel:,}"
+# ===== Send invoice (bot) =====
+async def send_invoice(update: Update, msg_text: str):
+    # Send the full message
     await update.message.reply_text(msg_text)
-    record_invoice(invoice_no, usd, riel)
+    # Record the invoice(s) automatically
+    await record_payment(update, None)
 
-# ===== Record user messages automatically =====
-async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== Record user or bot messages =====
+async def record_payment(update: Update, context):
     if not update.message or not update.message.text:
         return
     text = update.message.text
-    invoice_match = invoice_pattern.search(text)
-    usd_match = usd_pattern.search(text)
-    riel_match = riel_pattern.search(text)
-    if invoice_match and (usd_match or riel_match):
-        invoice_no = invoice_match.group(1)
-        usd_amount = float(usd_match.group(1).replace(",", "")) if usd_match else 0.0
-        riel_amount = int(riel_match.group(1).replace(",", "")) if riel_match else 0
-        record_invoice(invoice_no, usd_amount, riel_amount)
+
+    invoice_matches = re.findall(invoice_pattern, text)
+    total_match = total_pattern.search(text)
+
+    if invoice_matches and total_match:
+        usd_amount = float(total_match.group(1).replace(",", ""))
+        riel_amount = int(total_match.group(2).replace(",", ""))
+        for invoice_no in invoice_matches:
+            record_invoice(invoice_no, usd_amount, riel_amount)
 
 # ===== Commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
