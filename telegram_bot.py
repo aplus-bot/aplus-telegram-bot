@@ -43,25 +43,22 @@ def record_invoice(invoice_no: str, usd: float, riel: int):
         "riel": riel
     })
     save_data(data)
-    logging.info(f"Recorded invoice #{invoice_no} for {today_str}: ${usd} | R. {riel}")
+    logging.info(f"Recorded invoice #{invoice_no}: ${usd} | R. {riel}")
 
-# ===== Send invoice (bot message) =====
+# ===== Send invoice (bot) and record automatically =====
 async def send_invoice(update: Update, invoice_no: str, usd: float, riel: int):
     msg_text = f"🧾 វិក្កយបត្រ  {invoice_no}\n💵 ${usd:,.2f} | R. {riel:,}"
     await update.message.reply_text(msg_text)
-    # Record invoice immediately
     record_invoice(invoice_no, usd, riel)
 
-# ===== Record user messages =====
+# ===== Record user messages automatically =====
 async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
-
     text = update.message.text
     invoice_match = invoice_pattern.search(text)
     usd_match = usd_pattern.search(text)
     riel_match = riel_pattern.search(text)
-
     if invoice_match and (usd_match or riel_match):
         invoice_no = invoice_match.group(1)
         usd_amount = float(usd_match.group(1).replace(",", "")) if usd_match else 0.0
@@ -119,7 +116,6 @@ async def dsum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No invoices found for {period}.")
         return
 
-    # Build reply
     lines = []
     for inv in invoices:
         lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
@@ -142,7 +138,7 @@ def main():
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("dSum", dsum_command))
 
-    # Record user messages automatically
+    # Record user messages
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
 
     app.run_polling()
