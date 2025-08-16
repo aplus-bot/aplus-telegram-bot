@@ -1,63 +1,21 @@
-import os
 import logging
+import os
 import re
-import asyncio
-from datetime import datetime
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from telethon import TelegramClient
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-# ===== Logging =====
+# Enable logging to a file
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     filename='bot.log'
 )
 
-# ===== Telethon setup =====
-api_id = 123456           # Replace with your api_id
-api_hash = 'YOUR_API_HASH'  # Replace with your api_hash
-session_name = 'bot_client'
+# A dictionary to store the running totals for each group chat
+# This will keep track of sums over a period of time.
+group_totals = {}
 
-GROUP_ID = -1001234567890  # Replace with your group ID
-
-invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
-total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
-
-tele_client = TelegramClient(session_name, api_id, api_hash)
-
-# ===== Fetch invoices sent today =====
-async def fetch_invoices():
-    usd_total = 0.0
-    riel_total = 0
-    invoice_lines = []
-
-    today_str = datetime.now().strftime("%Y-%m-%d")
-
-    async for message in tele_client.iter_messages(GROUP_ID, limit=1000):
-        text = message.text or ""
-        msg_date = message.date.strftime("%Y-%m-%d")
-        if msg_date != today_str:
-            continue  # skip messages not from today
-
-        invoices = invoice_pattern.findall(text)
-        total_match = total_pattern.search(text)
-        if invoices and total_match:
-            usd = float(total_match.group(1).replace(",", ""))
-            riel = int(total_match.group(2).replace(",", ""))
-            usd_total += usd
-            riel_total += riel
-            for inv_no in invoices:
-                invoice_lines.append(f"🧾 វិក្កយបត្រ {inv_no}")
-                invoice_lines.append(f"💵 ${usd:,.2f} | R. {riel:,}")
-
-    if invoice_lines:
-        invoice_lines.append("_______________________")
-        invoice_lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
-
-    return "\n".join(invoice_lines) if invoice_lines else "No invoices found today."
-
-# ===== Telegram bot commands =====
+# /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -70,40 +28,131 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
     logging.info(f"/start used by {user.username} ({user.id}) in chat {chat.id}")
 
+# /help command handler
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    response = "Available commands:\n/start\n/help\n/about\n/sum"
+    response = (
+        "Available commands:\n"
+        "/start - Show user info\n"
+        "/help - List available commands\n"
+        "/about - About this bot\n"
+        "/sum - Show the total amount collected\n"
+        "/reset - Reset the total for this group"
+    )
     await update.message.reply_text(response)
+    user = update.effective_user
+    chat = update.effective_chat
+    logging.info(f"/help used by {user.username} ({user.id}) in chat {chat.id}")
 
+# /about command handler
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = (
         "About SystemBot:\n"
         "1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
-        "2) [Construction or Using](https://t.me/AplusSD_V5/194)\n"
+        "2) [Contruction or Using](https://t.me/AplusSD_V5/194)\n"
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
-    await update.message.reply_text(response)
+    await update.message.reply_text(response, disable_web_page_preview=True)
+    user = update.effective_user
+    chat = update.effective_chat
+    logging.info(f"/about used by {user.username} ({user.id}) in chat {chat.id}")
 
+# /sum command handler
 async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    invoice_text = await fetch_invoices()
-    await update.message.reply_text(invoice_text)
+    chat_id = update.effective_chat.id
+    if chat_id in group_totals:
+        total_usd = group_totals[chat_id]['usd']
+        total_khr = group_totals[chat_id]['khr']
 
-# ===== Run bot and Telethon client =====
-async def main():
-    # Start Telethon client
-    await tele_client.start()
-    print("Telethon client started")
+        reply_message = (
+            f"**💵 Current Total**\n"
+            f"-----------------------------------\n"
+            f"💰 **Total (USD):** ${total_usd:,.2f}\n"
+            f"💰 **Total (KHR):** R. {total_khr:,.0f}\n"
+            f"-----------------------------------"
+        )
+        await update.message.reply_text(reply_message, parse_mode='Markdown')
+        logging.info(f"/sum command used by {update.effective_user.username} ({update.effective_user.id}) in chat {chat_id}. Totals: USD {total_usd}, KHR {total_khr}")
+    else:
+        await update.message.reply_text("❌ No invoices have been processed in this group yet.")
+        logging.info(f"/sum command used, but no totals found for group {chat_id}")
 
-    # Start Telegram bot
+# /reset command handler
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if chat_id in group_totals:
+        # Reset the totals for the current group
+        group_totals[chat_id] = {'usd': 0.0, 'khr': 0.0}
+        await update.message.reply_text("✅ The totals for this group have been reset.")
+        logging.info(f"Totals reset by {update.effective_user.username} ({update.effective_user.id}) for group {chat_id}")
+    else:
+        await update.message.reply_text("❌ No totals to reset for this group.")
+
+# Message handler to read and sum invoices
+async def sum_invoices(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    message_text = update.message.text
+
+    # Make sure the message is a bill from MS Access
+    if '🧾 វិក្កយបត្រ' in message_text and '💵 សរុប' in message_text:
+        # Get or initialize the totals for the current group
+        if chat_id not in group_totals:
+            group_totals[chat_id] = {'usd': 0.0, 'khr': 0.0}
+
+        # Use a regular expression to find the dollar and Riel amounts
+        usd_match = re.search(r'\$\s*(\d+\.\d{2})', message_text)
+        khr_match = re.search(r'R\.\s*([\d,]+)', message_text)
+
+        usd_amount = 0.0
+        khr_amount = 0.0
+
+        if usd_match:
+            usd_amount = float(usd_match.group(1))
+            group_totals[chat_id]['usd'] += usd_amount
+            logging.info(f"Extracted ${usd_amount} from message in group {chat_id}")
+
+        if khr_match:
+            # Remove commas from the Riel amount before converting to float
+            khr_amount = float(khr_match.group(1).replace(',', ''))
+            group_totals[chat_id]['khr'] += khr_amount
+            logging.info(f"Extracted R. {khr_amount} from message in group {chat_id}")
+
+        # Construct and send the new reply message
+        total_usd = group_totals[chat_id]['usd']
+        total_khr = group_totals[chat_id]['khr']
+
+        reply_message = (
+            f"**🧾 Total Sum so far**\n"
+            f"-----------------------------------\n"
+            f"💵 **Total (USD):** ${total_usd:,.2f}\n"
+            f"💵 **Total (KHR):** R. {total_khr:,.0f}\n"
+            f"-----------------------------------"
+        )
+
+        await update.message.reply_text(reply_message, parse_mode='Markdown')
+        logging.info(f"Sent summary reply in group {chat_id}")
+
+# Main function to run the bot
+def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not TOKEN:
+        logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
+        return
+
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Add the command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
-    app.add_handler(CommandHandler("sum", sum_command))  # /sum command
+    app.add_handler(CommandHandler("sum", sum_command)) # New command handler
+    app.add_handler(CommandHandler("reset", reset_command))
 
-    # Run bot polling
-    await app.run_polling()
+    # Add the message handler to process invoices
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), sum_invoices))
 
+    logging.info("Bot is starting to poll...")
+    app.run_polling()
+
+# Run the bot
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
