@@ -13,7 +13,7 @@ logging.basicConfig(
     filename='bot.log'
 )
 
-# ===== JSON file for daily invoices =====
+# ===== JSON file to store invoices =====
 DATA_FILE = "daily_invoices.json"
 
 def load_data():
@@ -27,6 +27,7 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def record_invoice(invoice_no, usd, riel, user_id, username):
+    """Record invoice in JSON with invoice_no, usd, riel, user info."""
     today_str = datetime.now().strftime("%Y-%m-%d")
     data = load_data()
     if today_str not in data:
@@ -79,7 +80,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(response)
 
-# ===== Record user messages =====
+# ===== Record user messages automatically =====
 async def record_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     invoice_matches = invoice_pattern.findall(text)
@@ -94,16 +95,15 @@ async def record_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ===== Bot sends invoice and records it automatically =====
 async def send_invoice(update: Update, msg_text: str):
-    # Send the invoice
+    """Bot sends an invoice and records it automatically"""
     sent_msg = await update.message.reply_text(msg_text)
-
-    # Extract invoice numbers and totals
     invoice_matches = invoice_pattern.findall(msg_text)
     total_match = total_pattern.search(msg_text)
     if invoice_matches and total_match:
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
         for inv in invoice_matches:
+            # Mark bot invoices with user_id=0 and username="Bot"
             record_invoice(inv, usd_amount, riel_amount, user_id=0, username="Bot")
 
 # ===== /Sum command =====
@@ -130,7 +130,7 @@ async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== Main =====
 def main():
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Set your bot token in environment variable
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Command handlers
