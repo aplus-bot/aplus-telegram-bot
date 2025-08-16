@@ -17,7 +17,6 @@ logging.basicConfig(
 api_id = 23435657
 api_hash = '8d513f47e0492d0b2c4717e74a433364'
 session_name = 'aplus_bot_session'  # Session file for Telethon
-
 tele_client = TelegramClient(session_name, api_id, api_hash)
 
 # ===== Regex patterns =====
@@ -103,7 +102,7 @@ async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     invoice_text = await fetch_invoices(group_entity, period)
     await update.message.reply_text(invoice_text)
 
-# ===== Run bot and Telethon client =====
+# ===== Main =====
 async def main():
     # Start Telethon client
     await tele_client.start()
@@ -118,7 +117,12 @@ async def main():
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("sum", sum_command))
 
-    await app.run_polling()
+    # Run Telegram bot polling (async)
+    await app.initialize()
+    await app.start()
+    print("Telegram bot started")
+    await app.updater.start_polling()
+    await app.updater.idle()  # Keep running
 
 if __name__ == "__main__":
     import asyncio
