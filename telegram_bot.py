@@ -1,8 +1,7 @@
 import os
 import logging
 import re
-import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telethon import TelegramClient
@@ -15,28 +14,39 @@ logging.basicConfig(
 )
 
 # ===== Telethon setup =====
-api_id = 23435657              # Replace with your api_id
-api_hash = '8d513f47e0492d0b2c4717e74a433364'   # Replace with your api_hash
-session_name = 'bot_client'
+api_id = 23435657
+api_hash = '8d513f47e0492d0b2c4717e74a433364'
+session_name = 'aplus_bot_session'  # Session file for Telethon
 
 tele_client = TelegramClient(session_name, api_id, api_hash)
 
+# ===== Regex patterns =====
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
-# ===== Fetch invoices sent today from a specific group =====
-async def fetch_invoices(group):
+# ===== Fetch invoices from a group =====
+async def fetch_invoices(group, period="today"):
     usd_total = 0.0
     riel_total = 0
     invoice_lines = []
 
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now().date()
+    dates = []
+
+    if period == "today":
+        dates = [today]
+    elif period == "yesterday":
+        dates = [today - timedelta(days=1)]
+    elif period == "week":
+        dates = [today - timedelta(days=i) for i in range(7)]
+    else:
+        return "Invalid period. Use: today, yesterday, week"
 
     async for message in tele_client.iter_messages(group, limit=1000):
         text = message.text or ""
-        msg_date = message.date.strftime("%Y-%m-%d")
-        if msg_date != today_str:
-            continue  # skip messages not from today
+        msg_date = message.date.date()
+        if msg_date not in dates:
+            continue
 
         invoices = invoice_pattern.findall(text)
         total_match = total_pattern.search(text)
@@ -53,47 +63,44 @@ async def fetch_invoices(group):
         invoice_lines.append("_______________________")
         invoice_lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
 
-    return "\n".join(invoice_lines) if invoice_lines else "No invoices found today."
+    return "\n".join(invoice_lines) if invoice_lines else f"No invoices found for {period}."
 
 # ===== Telegram bot commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    response = (
-        f"Hello {user.first_name}!\n\n"
-        f"UserID: {user.id}\n"
-        f"UserName: {user.username}\n"
-        f"GroupID: {chat.id if chat.type in ['group', 'supergroup'] else 'N/A'}"
+    await update.message.reply_text(
+        f"Hello {user.first_name}!\nUserID: {user.id}\nUserName: {user.username}\nGroupID: {chat.id if chat.type in ['group', 'supergroup'] else 'N/A'}"
     )
-    await update.message.reply_text(response)
-    logging.info(f"/start used by {user.username} ({user.id}) in chat {chat.id}")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    response = "Available commands:\n/start\n/help\n/about\n/sum <group_id or group_username>"
-    await update.message.reply_text(response)
+    await update.message.reply_text(
+        "Commands:\n/start\n/help\n/about\n/sum <group_id or username> [today|yesterday|week]"
+    )
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    response = (
+    await update.message.reply_text(
         "About SystemBot:\n"
         "1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
         "2) [Construction or Using](https://t.me/AplusSD_V5/194)\n"
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
-    await update.message.reply_text(response)
 
 async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Usage: /sum <group_id or group_username>")
+        await update.message.reply_text("Usage: /sum <group_id or username> [today|yesterday|week]")
         return
 
-    group = context.args[0]  # e.g., -1001234567890 or "MyGroup"
+    group_input = context.args[0]
+    period = context.args[1].lower() if len(context.args) > 1 else "today"
+
     try:
-        group_entity = await tele_client.get_entity(group)
+        group_entity = await tele_client.get_entity(group_input)
     except Exception as e:
         await update.message.reply_text(f"Failed to access group: {e}")
         return
 
-    invoice_text = await fetch_invoices(group_entity)
+    invoice_text = await fetch_invoices(group_entity, period)
     await update.message.reply_text(invoice_text)
 
 # ===== Run bot and Telethon client =====
@@ -109,9 +116,8 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
-    app.add_handler(CommandHandler("sum", sum_command))  # dynamic group
+    app.add_handler(CommandHandler("sum", sum_command))
 
-    # Run bot polling
     await app.run_polling()
 
 if __name__ == "__main__":
