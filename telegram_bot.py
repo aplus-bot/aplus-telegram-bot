@@ -19,8 +19,8 @@ logging.basicConfig(
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # ===== Telethon API credentials =====
-API_ID = 123456          # Replace with your api_id
-API_HASH = "YOUR_API_HASH"  # Replace with your api_hash
+API_ID = 23435657          # Replace with your api_id
+API_HASH = "8d513f47e0492d0b2c4717e74a433364"  # Replace with your api_hash
 
 # ===== Patterns =====
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
