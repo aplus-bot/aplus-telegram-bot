@@ -24,7 +24,7 @@ def load_data():
 
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(data, data, ensure_ascii=False, indent=2)
 
 def record_invoice(invoice_no, usd, riel, user_id, username):
     today_str = datetime.now().strftime("%Y-%m-%d")
@@ -68,33 +68,35 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/Sum - Sum all invoices today (including bot messages)"
     )
     await update.message.reply_text(response)
-    user = update.effective_user
-    chat = update.effective_chat
-    logging.info(f"/help used by {user.username} ({user.id}) in chat {chat.id}")
 
 # ===== /about command =====
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = (
         "About SystemBot:\n"
         "1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
-        "2) [Contruction or Using] (https://t.me/AplusSD_V5/194)\n"
+        "2) [Construction or Using](https://t.me/AplusSD_V5/194)\n"
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
     await update.message.reply_text(response)
-    user = update.effective_user
-    chat = update.effective_chat
-    logging.info(f"/about used by {user.username} ({user.id}) in chat {chat.id}")
 
-# ===== Record messages (users & bot) =====
-async def record_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ===== Record messages (both user and bot) =====
+async def record_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
     invoice_matches = invoice_pattern.findall(text)
     total_match = total_pattern.search(text)
+    
     if invoice_matches and total_match:
         usd_amount = float(total_match.group(1).replace(",", ""))
         riel_amount = int(total_match.group(2).replace(",", ""))
-        user_id = update.effective_user.id if update.effective_user else 0
-        username = update.effective_user.username if update.effective_user else "Bot"
+        
+        # Determine if message is from bot or user
+        if update.message.from_user.is_bot:
+            user_id = 0
+            username = "Bot"
+        else:
+            user_id = update.effective_user.id
+            username = update.effective_user.username or "Unknown"
+        
         for inv in invoice_matches:
             record_invoice(inv, usd_amount, riel_amount, user_id, username)
 
@@ -114,13 +116,13 @@ async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = []
     for inv in invoices:
         lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
-        lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,} | UserID: {inv['user_id']} | {inv['username']}")
+        lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
     lines.append("_______________________")
     lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
 
     await update.message.reply_text("\n".join(lines))
 
-# ===== Main function =====
+# ===== Main =====
 def main():
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
@@ -131,8 +133,8 @@ def main():
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("Sum", sum_command))
 
-    # Record all messages automatically
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_payment))
+    # Record all messages (both user and bot)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_message))
 
     app.run_polling()
 
