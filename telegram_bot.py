@@ -111,7 +111,7 @@ async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today_str = datetime.now().strftime("%Y-%m-%d")
     data = load_data()
     invoices = data.get(today_str, [])
-
+    
     if not invoices:
         await update.message.reply_text("No invoices recorded today.")
         return
@@ -121,7 +121,7 @@ async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lines = []
     for inv in invoices:
-        lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
+        lines.append(f"🧾 វិក្កយបត្រ {inv['invoice_no']}")
         lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
     lines.append("_______________________")
     lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
