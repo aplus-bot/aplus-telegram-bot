@@ -15,8 +15,8 @@ logging.basicConfig(
 )
 
 # ===== Telethon setup =====
-api_id = 123456              # Replace with your api_id
-api_hash = 'YOUR_API_HASH'   # Replace with your api_hash
+api_id = 23435657              # Replace with your api_id
+api_hash = '8d513f47e0492d0b2c4717e74a433364'   # Replace with your api_hash
 session_name = 'bot_client'
 
 tele_client = TelegramClient(session_name, api_id, api_hash)
