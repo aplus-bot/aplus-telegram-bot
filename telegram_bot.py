@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import asyncio
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -16,14 +17,14 @@ logging.basicConfig(
 # ===== Telethon setup =====
 api_id = 23435657
 api_hash = '8d513f47e0492d0b2c4717e74a433364'
-session_name = 'aplus_bot_session'  # Session file for Telethon
+session_name = 'aplus_bot_session'
 tele_client = TelegramClient(session_name, api_id, api_hash)
 
 # ===== Regex patterns =====
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
-# ===== Fetch invoices from a group =====
+# ===== Fetch invoices from any group =====
 async def fetch_invoices(group, period="today"):
     usd_total = 0.0
     riel_total = 0
@@ -74,20 +75,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Commands:\n/start\n/help\n/about\n/sum <group_id or username> [today|yesterday|week]"
+        "Commands:\n/start\n/help\n/about\n/sum <group_username_or_id> [today|yesterday|week]"
     )
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "About SystemBot:\n"
-        "1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
+        "About SystemBot:\n1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
         "2) [Construction or Using](https://t.me/AplusSD_V5/194)\n"
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
 
 async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Usage: /sum <group_id or username> [today|yesterday|week]")
+        await update.message.reply_text("Usage: /sum <group_username_or_id> [today|yesterday|week]")
         return
 
     group_input = context.args[0]
@@ -104,26 +104,19 @@ async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== Main =====
 async def main():
-    # Start Telethon client
     await tele_client.start()
     print("Telethon client started")
 
-    # Start Telegram bot
+    # Telegram bot
     TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
     app.add_handler(CommandHandler("sum", sum_command))
 
-    # Run Telegram bot polling (async)
-    await app.initialize()
-    await app.start()
-    print("Telegram bot started")
-    await app.updater.start_polling()
-    await app.updater.idle()  # Keep running
+    # Run bot polling concurrently with Telethon
+    await app.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
