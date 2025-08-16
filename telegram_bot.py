@@ -24,7 +24,7 @@ tele_client = TelegramClient(session_name, api_id, api_hash)
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
-# ===== Fetch invoices from any group =====
+# ===== Fetch invoices from a group =====
 async def fetch_invoices(group, period="today"):
     usd_total = 0.0
     riel_total = 0
@@ -65,7 +65,7 @@ async def fetch_invoices(group, period="today"):
 
     return "\n".join(invoice_lines) if invoice_lines else f"No invoices found for {period}."
 
-# ===== Telegram bot commands =====
+# ===== Bot commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -75,7 +75,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Commands:\n/start\n/help\n/about\n/sum <group_username_or_id> [today|yesterday|week]"
+        "Commands:\n/start\n/help\n/about\n/sum <group_id or username> [today|yesterday|week]"
     )
 
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -87,7 +87,7 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("Usage: /sum <group_username_or_id> [today|yesterday|week]")
+        await update.message.reply_text("Usage: /sum <group_id or username> [today|yesterday|week]")
         return
 
     group_input = context.args[0]
@@ -116,7 +116,10 @@ async def main():
     app.add_handler(CommandHandler("sum", sum_command))
 
     # Run bot polling concurrently with Telethon
-    await app.run_polling()
+    await asyncio.gather(
+        app.run_polling(),
+        asyncio.sleep(0)  # keep the loop alive
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
