@@ -1,10 +1,11 @@
-import logging
 import os
+import logging
 import re
-import json
+import asyncio
 from datetime import datetime
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telethon import TelegramClient
 
 # ===== Logging =====
 logging.basicConfig(
@@ -13,40 +14,48 @@ logging.basicConfig(
     filename='bot.log'
 )
 
-# ===== JSON file to store invoices =====
-DATA_FILE = "daily_invoices.json"
+# ===== Telethon setup =====
+api_id = 123456              # Replace with your api_id
+api_hash = 'YOUR_API_HASH'   # Replace with your api_hash
+session_name = 'bot_client'
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+tele_client = TelegramClient(session_name, api_id, api_hash)
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-def record_invoice(invoice_no, usd, riel, user_id, username):
-    """Record invoice in JSON with invoice_no, usd, riel, user info."""
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    data = load_data()
-    if today_str not in data:
-        data[today_str] = []
-    data[today_str].append({
-        "invoice_no": invoice_no,
-        "usd": usd,
-        "riel": riel,
-        "user_id": user_id,
-        "username": username
-    })
-    save_data(data)
-    logging.info(f"Invoice #{invoice_no} recorded: ${usd} | R. {riel} by {username}")
-
-# ===== Regex patterns =====
 invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
 total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
 
-# ===== /start command =====
+# ===== Fetch invoices sent today from a specific group =====
+async def fetch_invoices(group):
+    usd_total = 0.0
+    riel_total = 0
+    invoice_lines = []
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    async for message in tele_client.iter_messages(group, limit=1000):
+        text = message.text or ""
+        msg_date = message.date.strftime("%Y-%m-%d")
+        if msg_date != today_str:
+            continue  # skip messages not from today
+
+        invoices = invoice_pattern.findall(text)
+        total_match = total_pattern.search(text)
+        if invoices and total_match:
+            usd = float(total_match.group(1).replace(",", ""))
+            riel = int(total_match.group(2).replace(",", ""))
+            usd_total += usd
+            riel_total += riel
+            for inv_no in invoices:
+                invoice_lines.append(f"🧾 វិក្កយបត្រ {inv_no}")
+                invoice_lines.append(f"💵 ${usd:,.2f} | R. {riel:,}")
+
+    if invoice_lines:
+        invoice_lines.append("_______________________")
+        invoice_lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
+
+    return "\n".join(invoice_lines) if invoice_lines else "No invoices found today."
+
+# ===== Telegram bot commands =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -59,18 +68,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
     logging.info(f"/start used by {user.username} ({user.id}) in chat {chat.id}")
 
-# ===== /help command =====
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    response = (
-        "Available commands:\n"
-        "/start - Show user info\n"
-        "/help - List available commands\n"
-        "/about - About this bot\n"
-        "/Sum - Sum all invoices today (including bot messages)"
-    )
+    response = "Available commands:\n/start\n/help\n/about\n/sum <group_id or group_username>"
     await update.message.reply_text(response)
 
-# ===== /about command =====
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = (
         "About SystemBot:\n"
@@ -80,69 +81,39 @@ async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(response)
 
-# ===== Record user messages automatically =====
-async def record_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text or ""
-    invoice_matches = invoice_pattern.findall(text)
-    total_match = total_pattern.search(text)
-    if invoice_matches and total_match:
-        usd_amount = float(total_match.group(1).replace(",", ""))
-        riel_amount = int(total_match.group(2).replace(",", ""))
-        user_id = update.effective_user.id
-        username = update.effective_user.username or "Unknown"
-        for inv in invoice_matches:
-            record_invoice(inv, usd_amount, riel_amount, user_id, username)
-
-# ===== Bot sends invoice and records it automatically =====
-async def send_invoice(update: Update, msg_text: str):
-    """Bot sends an invoice and records it automatically"""
-    sent_msg = await update.message.reply_text(msg_text)
-    invoice_matches = invoice_pattern.findall(msg_text)
-    total_match = total_pattern.search(msg_text)
-    if invoice_matches and total_match:
-        usd_amount = float(total_match.group(1).replace(",", ""))
-        riel_amount = int(total_match.group(2).replace(",", ""))
-        for inv in invoice_matches:
-            # Mark bot invoices with user_id=0 and username="Bot"
-            record_invoice(inv, usd_amount, riel_amount, user_id=0, username="Bot")
-
-# ===== /Sum command =====
 async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    data = load_data()
-    invoices = data.get(today_str, [])
-    
-    if not invoices:
-        await update.message.reply_text("No invoices recorded today.")
+    if not context.args:
+        await update.message.reply_text("Usage: /sum <group_id or group_username>")
         return
 
-    usd_total = sum(inv["usd"] for inv in invoices)
-    riel_total = sum(inv["riel"] for inv in invoices)
+    group = context.args[0]  # e.g., -1001234567890 or "MyGroup"
+    try:
+        group_entity = await tele_client.get_entity(group)
+    except Exception as e:
+        await update.message.reply_text(f"Failed to access group: {e}")
+        return
 
-    lines = []
-    for inv in invoices:
-        lines.append(f"🧾 វិក្កយបត្រ {inv['invoice_no']}")
-        lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
-    lines.append("_______________________")
-    lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
+    invoice_text = await fetch_invoices(group_entity)
+    await update.message.reply_text(invoice_text)
 
-    await update.message.reply_text("\n".join(lines))
+# ===== Run bot and Telethon client =====
+async def main():
+    # Start Telethon client
+    await tele_client.start()
+    print("Telethon client started")
 
-# ===== Main =====
-def main():
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")  # Set your bot token in environment variable
+    # Start Telegram bot
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
-    app.add_handler(CommandHandler("Sum", sum_command))
+    app.add_handler(CommandHandler("sum", sum_command))  # dynamic group
 
-    # Record all user messages automatically
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_user_message))
-
-    app.run_polling()
+    # Run bot polling
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
