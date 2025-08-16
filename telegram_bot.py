@@ -1,21 +1,51 @@
 import logging
 import os
 import re
+import json
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
-# Enable logging to a file
+# ===== Logging =====
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     filename='bot.log'
 )
 
-# A dictionary to store the running totals for each group chat
-# This will keep track of sums over a period of time.
-group_totals = {}
+# ===== JSON file for daily invoices =====
+DATA_FILE = "daily_invoices.json"
 
-# /start command handler
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def record_invoice(invoice_no, usd, riel, user_id, username):
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    data = load_data()
+    if today_str not in data:
+        data[today_str] = []
+    data[today_str].append({
+        "invoice_no": invoice_no,
+        "usd": usd,
+        "riel": riel,
+        "user_id": user_id,
+        "username": username
+    })
+    save_data(data)
+    logging.info(f"Invoice #{invoice_no} recorded: ${usd} | R. {riel} by {username}")
+
+# ===== Regex patterns =====
+invoice_pattern = re.compile(r"🧾\s*វិក្កយបត្រ\s*(\d+)")
+total_pattern = re.compile(r"💵\s*សរុប\s*:\s*\$([\d,.]+)\s*\|\s*R\.\s*([\d,]+)")
+
+# ===== /start command =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -28,131 +58,91 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
     logging.info(f"/start used by {user.username} ({user.id}) in chat {chat.id}")
 
-# /help command handler
+# ===== /help command =====
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = (
         "Available commands:\n"
         "/start - Show user info\n"
         "/help - List available commands\n"
         "/about - About this bot\n"
-        "/sum - Show the total amount collected\n"
-        "/reset - Reset the total for this group"
+        "/Sum - Sum all invoices today (including bot messages)"
     )
     await update.message.reply_text(response)
-    user = update.effective_user
-    chat = update.effective_chat
-    logging.info(f"/help used by {user.username} ({user.id}) in chat {chat.id}")
 
-# /about command handler
+# ===== /about command =====
 async def about_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response = (
         "About SystemBot:\n"
         "1) [Teacher Ngov Samnang](https://t.me/Aplus_SD)\n"
-        "2) [Contruction or Using](https://t.me/AplusSD_V5/194)\n"
+        "2) [Construction or Using](https://t.me/AplusSD_V5/194)\n"
         "3) [On Youtube](https://www.youtube.com/playlist?list=PLikM0v0bp6Cg8MC9hUnsZn9RU450YmFn0)"
     )
-    await update.message.reply_text(response, disable_web_page_preview=True)
-    user = update.effective_user
-    chat = update.effective_chat
-    logging.info(f"/about used by {user.username} ({user.id}) in chat {chat.id}")
+    await update.message.reply_text(response)
 
-# /sum command handler
+# ===== Record user messages =====
+async def record_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text or ""
+    invoice_matches = invoice_pattern.findall(text)
+    total_match = total_pattern.search(text)
+    if invoice_matches and total_match:
+        usd_amount = float(total_match.group(1).replace(",", ""))
+        riel_amount = int(total_match.group(2).replace(",", ""))
+        user_id = update.effective_user.id
+        username = update.effective_user.username or "Unknown"
+        for inv in invoice_matches:
+            record_invoice(inv, usd_amount, riel_amount, user_id, username)
+
+# ===== Bot sends invoice and records it automatically =====
+async def send_invoice(update: Update, msg_text: str):
+    # Send the invoice
+    sent_msg = await update.message.reply_text(msg_text)
+
+    # Extract invoice numbers and totals
+    invoice_matches = invoice_pattern.findall(msg_text)
+    total_match = total_pattern.search(msg_text)
+    if invoice_matches and total_match:
+        usd_amount = float(total_match.group(1).replace(",", ""))
+        riel_amount = int(total_match.group(2).replace(",", ""))
+        for inv in invoice_matches:
+            record_invoice(inv, usd_amount, riel_amount, user_id=0, username="Bot")
+
+# ===== /Sum command =====
 async def sum_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if chat_id in group_totals:
-        total_usd = group_totals[chat_id]['usd']
-        total_khr = group_totals[chat_id]['khr']
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    data = load_data()
+    invoices = data.get(today_str, [])
 
-        reply_message = (
-            f"**💵 Current Total**\n"
-            f"-----------------------------------\n"
-            f"💰 **Total (USD):** ${total_usd:,.2f}\n"
-            f"💰 **Total (KHR):** R. {total_khr:,.0f}\n"
-            f"-----------------------------------"
-        )
-        await update.message.reply_text(reply_message, parse_mode='Markdown')
-        logging.info(f"/sum command used by {update.effective_user.username} ({update.effective_user.id}) in chat {chat_id}. Totals: USD {total_usd}, KHR {total_khr}")
-    else:
-        await update.message.reply_text("❌ No invoices have been processed in this group yet.")
-        logging.info(f"/sum command used, but no totals found for group {chat_id}")
-
-# /reset command handler
-async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    if chat_id in group_totals:
-        # Reset the totals for the current group
-        group_totals[chat_id] = {'usd': 0.0, 'khr': 0.0}
-        await update.message.reply_text("✅ The totals for this group have been reset.")
-        logging.info(f"Totals reset by {update.effective_user.username} ({update.effective_user.id}) for group {chat_id}")
-    else:
-        await update.message.reply_text("❌ No totals to reset for this group.")
-
-# Message handler to read and sum invoices
-async def sum_invoices(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    message_text = update.message.text
-
-    # Make sure the message is a bill from MS Access
-    if '🧾 វិក្កយបត្រ' in message_text and '💵 សរុប' in message_text:
-        # Get or initialize the totals for the current group
-        if chat_id not in group_totals:
-            group_totals[chat_id] = {'usd': 0.0, 'khr': 0.0}
-
-        # Use a regular expression to find the dollar and Riel amounts
-        usd_match = re.search(r'\$\s*(\d+\.\d{2})', message_text)
-        khr_match = re.search(r'R\.\s*([\d,]+)', message_text)
-
-        usd_amount = 0.0
-        khr_amount = 0.0
-
-        if usd_match:
-            usd_amount = float(usd_match.group(1))
-            group_totals[chat_id]['usd'] += usd_amount
-            logging.info(f"Extracted ${usd_amount} from message in group {chat_id}")
-
-        if khr_match:
-            # Remove commas from the Riel amount before converting to float
-            khr_amount = float(khr_match.group(1).replace(',', ''))
-            group_totals[chat_id]['khr'] += khr_amount
-            logging.info(f"Extracted R. {khr_amount} from message in group {chat_id}")
-
-        # Construct and send the new reply message
-        total_usd = group_totals[chat_id]['usd']
-        total_khr = group_totals[chat_id]['khr']
-
-        reply_message = (
-            f"**🧾 Total Sum so far**\n"
-            f"-----------------------------------\n"
-            f"💵 **Total (USD):** ${total_usd:,.2f}\n"
-            f"💵 **Total (KHR):** R. {total_khr:,.0f}\n"
-            f"-----------------------------------"
-        )
-
-        await update.message.reply_text(reply_message, parse_mode='Markdown')
-        logging.info(f"Sent summary reply in group {chat_id}")
-
-# Main function to run the bot
-def main():
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not TOKEN:
-        logging.error("TELEGRAM_BOT_TOKEN not found in environment variables.")
+    if not invoices:
+        await update.message.reply_text("No invoices recorded today.")
         return
 
+    usd_total = sum(inv["usd"] for inv in invoices)
+    riel_total = sum(inv["riel"] for inv in invoices)
+
+    lines = []
+    for inv in invoices:
+        lines.append(f"🧾 វិក្កយបត្រ  {inv['invoice_no']}")
+        lines.append(f"💵 ${inv['usd']:,.2f} | R. {inv['riel']:,}")
+    lines.append("_______________________")
+    lines.append(f"💵 ${usd_total:,.2f} | R. {riel_total:,}")
+
+    await update.message.reply_text("\n".join(lines))
+
+# ===== Main =====
+def main():
+    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Add the command handlers
+    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("about", about_command))
-    app.add_handler(CommandHandler("sum", sum_command)) # New command handler
-    app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("Sum", sum_command))
 
-    # Add the message handler to process invoices
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), sum_invoices))
+    # Record all user messages automatically
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, record_user_message))
 
-    logging.info("Bot is starting to poll...")
     app.run_polling()
 
-# Run the bot
 if __name__ == "__main__":
     main()
